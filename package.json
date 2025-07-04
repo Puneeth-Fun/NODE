@@ -1,0 +1,21 @@
+{
+  "name": "node",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "csv-writer": "^1.6.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.1",
+    "formidable": "^3.5.4",
+    "helmet": "^8.1.0",
+    "multer": "^2.0.1"
+  }
+}
