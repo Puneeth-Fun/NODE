@@ -270,7 +270,12 @@
             <tbody>
                 ${pageData.map((row, i) => `
                     <tr class="hover:bg-white hover:bg-opacity-5 border-b border-white border-opacity-5">
-                        ${columns.map(col => `<td class="px-6 py-4 text-sm text-gray-200"><div class="max-w-xs truncate" title="${(row[col] || '').toString()}">${(row[col] || '').toString()}</div></td>`).join('')}
+                        ${columns.map(col => {
+                            // Show false and 0 values, not just truthy
+                            let cellValue = row[col];
+                            let displayValue = (cellValue === undefined || cellValue === null || cellValue === '') ? '' : cellValue;
+                            return `<td class="px-6 py-4 text-sm text-gray-200"><div class="max-w-xs truncate" title="${displayValue}">${displayValue}</div></td>`;
+                        }).join('')}
                     </tr>
                 `).join('')}
             </tbody>
