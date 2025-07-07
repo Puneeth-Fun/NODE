@@ -550,10 +550,13 @@ app.post('/api/fix', async (req, res) => {
     if (!result.candidates || result.candidates.length === 0) {
       throw new Error('No response from Gemini API');
     }
-    const correctedData = result.candidates[0].content.parts[0].text
-      .replace(/^```[\w]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
+    let correctedData = result.candidates[0].content.parts[0].text;
+    // Remove all leading/trailing code blocks (``` or ```json, etc.) and trim whitespace
+    correctedData = correctedData.replace(/^```[\w]*\s*([\r\n])?/i, '')
+                                 .replace(/([\r\n])?```\s*$/i, '')
+                                 .trim();
+    // If still wrapped in code block (sometimes AI returns double code blocks), remove again
+    correctedData = correctedData.replace(/^```[\w]*\s*([\r\n])?/i, '').replace(/([\r\n])?```\s*$/i, '').trim();
     return res.json({ correctedData });
   } catch (error) {
     return res.status(400).json({ error: error.message });
