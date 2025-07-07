@@ -91,10 +91,26 @@ app.get('/', (req, res) => {
         .zebra tbody tr:hover { background-color: rgba(59, 130, 246, 0.13); transition: background 0.2s; }
         .focus-ring:focus { outline: 2px solid #6366f1; outline-offset: 2px; }
         .transition-all { transition: all 0.2s cubic-bezier(.4,0,.2,1); }
+        .lds-dual-ring {
+          display: inline-block;
+          width: 80px;
+          height: 80px;
+          border: 8px solid rgba(255, 255, 255, 0.2);
+          border-radius: 50%;
+          border-top-color: #6366f1;
+          animation: lds-dual-ring 1.2s linear infinite;
+        }
+        @keyframes lds-dual-ring {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="min-h-screen p-6 relative">
     <div class="animated-bg"></div>
+    <div id="loadingOverlay" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(30,41,59,0.45);z-index:9999;align-items:center;justify-content:center;pointer-events:all;" aria-busy="true" role="status">
+        <div class="lds-dual-ring"></div>
+    </div>
     <div class="max-w-7xl mx-auto space-y-6 relative z-10">
         <div class="text-center">
             <h1 class="text-5xl font-extrabold text-white mb-2 tracking-tight drop-shadow-lg">🤖 AI Data Table Viewer</h1>
@@ -214,82 +230,57 @@ app.get('/', (req, res) => {
         }
 
         async function parseData(data) {
+            showLoading(true);
             try {
                 const response = await fetch('/api/parse', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data })
                 });
-                
                 const result = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(result.error);
                 }
-                
                 return result;
             } catch (error) {
                 throw error;
-            }
-        }
-
-        async function handleDataChange() {
-            const data = document.getElementById('inputData').value;
-            const errorSection = document.getElementById('errorSection');
-            const dataType = document.getElementById('dataType');
-            
-            errorSection.classList.add('hidden');
-            dataType.classList.add('hidden');
-            
-            if (!data.trim()) {
-                document.getElementById('dataTable').classList.add('hidden');
-                return;
-            }
-            
-            try {
-                const result = await parseData(data);
-                currentData = result.data;
-                dataType.textContent = \`✅ \${result.type} detected\`;
-                dataType.classList.remove('hidden');
-                renderTable();
-                showToast(\`Successfully parsed \${result.data.length} rows as \${result.type}\`, 'success');
-            } catch (error) {
-                document.getElementById('errorMessage').textContent = error.message;
-                errorSection.classList.remove('hidden');
-                document.getElementById('dataTable').classList.add('hidden');
+            } finally {
+                showLoading(false);
             }
         }
 
         async function fixWithAI() {
             const data = document.getElementById('inputData').value;
             const apiKey = document.getElementById('apiKey').value;
-            
             if (!apiKey) {
                 showToast('Please enter your Gemini API key first', 'error');
                 return;
             }
-            
+            showLoading(true);
             try {
                 showToast('AI is fixing your data...', 'info');
-                
                 const response = await fetch('/api/fix', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data, apiKey })
                 });
-                
                 const result = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(result.error);
                 }
-                
                 document.getElementById('inputData').value = result.correctedData;
                 await handleDataChange();
                 showToast('AI successfully corrected your data!', 'success');
             } catch (error) {
                 showToast(error.message, 'error');
+            } finally {
+                showLoading(false);
             }
+        }
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = show ? 'flex' : 'none';
         }
 
         function renderTable() {
