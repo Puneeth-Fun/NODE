@@ -122,12 +122,15 @@
                         <h2 class="text-xl font-semibold text-white flex items-center gap-2">🗃️ Data Table</h2>
                         <p id="tableInfo" class="text-gray-300 text-sm mt-1"></p>
                     </div>
-                    <div class="flex gap-3">
+                    <div class="flex gap-3 items-center">
                         <select id="rowsPerPage" class="bg-black bg-opacity-20 border border-white border-opacity-20 rounded-lg px-3 py-2 text-white text-sm focus-ring transition-all">
                             <option value="25">25 rows</option>
                             <option value="50" selected>50 rows</option>
                             <option value="100">100 rows</option>
                         </select>
+                        <!-- Universal filter search box -->
+                        <input id="universalFilterInput" type="text" placeholder="🔎 Universal filter..." class="bg-black bg-opacity-20 border border-white border-opacity-20 rounded-lg px-3 py-2 text-white text-sm focus-ring transition-all w-48" />
+                        <button id="filterTableBtn" class="bg-blue-700 hover:bg-blue-800 text-white px-4 py-2 rounded-lg font-semibold shadow transition-all focus-ring">🔍 Filter</button>
                         <button id="exportCSVBtn" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold shadow transition-all focus-ring">📥 Export CSV</button>
                     </div>
                 </div>
@@ -147,9 +150,13 @@
     </div>
 
     <script>
-    let currentData = [];
-    let currentPage = 1;
-    let rowsPerPage = 50;
+    // Table state and logic moved to global for external JS
+    window.currentData = [];
+    window.currentPage = 1;
+    window.rowsPerPage = 50;
+    window.sortColumn = null;
+    window.sortDirection = 'asc';
+    window.filters = {};
 
     function showLoading(show) {
         const overlay = document.getElementById('loadingOverlay');
@@ -210,7 +217,7 @@
         }
         try {
             const result = await parseData(data);
-            currentData = result.data;
+            window.currentData = result.data;
             renderTable();
             showToast(`Successfully parsed ${result.data.length} rows as ${result.type}`,'success');
         } catch (error) {
@@ -267,20 +274,57 @@
     }
 
     function renderTable() {
-        if (!currentData.length) return;
+        if (!window.currentData.length) return;
+        // Expose renderTable globally for filter modal
+        window.renderTable = renderTable;
         const table = document.getElementById('table');
         const tableInfo = document.getElementById('tableInfo');
         const dataTable = document.getElementById('dataTable');
-        const columns = [...new Set(currentData.flatMap(Object.keys))];
-        const totalRows = currentData.length;
+        const columns = [...new Set(window.currentData.flatMap(Object.keys))];
+        // Universal filter
+        const universalFilter = (document.getElementById('universalFilterInput')?.value || '').trim().toLowerCase();
+        // Filtering
+        let filteredData = window.currentData.filter(row => {
+            // Advanced column filters
+            const columnFiltersPass = Object.entries(window.filters).every(([col, val]) => {
+                if (!val) return true;
+                return (row[col] || '').toString().toLowerCase().includes(val.toLowerCase());
+            });
+            // Universal filter: match any cell
+            if (universalFilter) {
+                return columnFiltersPass && columns.some(col => (row[col] || '').toString().toLowerCase().includes(universalFilter));
+            }
+            return columnFiltersPass;
+        });
+        // Sorting
+        if (window.sortColumn) {
+            filteredData = filteredData.slice().sort((a, b) => {
+                let av = a[window.sortColumn] || '';
+                let bv = b[window.sortColumn] || '';
+                if (!isNaN(av) && !isNaN(bv)) {
+                    av = Number(av); bv = Number(bv);
+                }
+                if (av < bv) return window.sortDirection === 'asc' ? -1 : 1;
+                if (av > bv) return window.sortDirection === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+        const totalRows = filteredData.length;
         tableInfo.textContent = `${totalRows} rows • ${columns.length} columns`;
-        const startIndex = (currentPage - 1) * rowsPerPage;
-        const endIndex = Math.min(startIndex + rowsPerPage, totalRows);
-        const pageData = currentData.slice(startIndex, endIndex);
+        const startIndex = (window.currentPage - 1) * window.rowsPerPage;
+        const endIndex = Math.min(startIndex + window.rowsPerPage, totalRows);
+        const pageData = filteredData.slice(startIndex, endIndex);
+        // Table header with sort only
         table.innerHTML = `
             <thead class="sticky top-0 bg-black bg-opacity-60 backdrop-blur-sm">
                 <tr>
-                    ${columns.map(col => `<th class="px-6 py-4 text-left text-sm font-semibold text-blue-300 border-b border-white border-opacity-10">${col}</th>`).join('')}
+                    ${columns.map(col => `
+                        <th class="px-6 py-4 text-left text-sm font-semibold text-blue-300 border-b border-white border-opacity-10 cursor-pointer group" data-col="${col}">
+                            <span>${col}</span>
+                            <span class="ml-1 text-xs">
+                                ${window.sortColumn === col ? (window.sortDirection === 'asc' ? '▲' : '▼') : ''}
+                            </span>
+                        </th>`).join('')}
                 </tr>
             </thead>
             <tbody>
@@ -290,31 +334,47 @@
                             // Show false and 0 values, not just truthy
                             let cellValue = row[col];
                             let displayValue = (cellValue === undefined || cellValue === null || cellValue === '') ? '' : cellValue;
-                            return `<td class="px-6 py-4 text-sm text-gray-200"><div class="max-w-xs truncate" title="${displayValue}">${displayValue}</div></td>`;
+                            return `<td class="px-6 py-4 text-sm text-gray-200 whitespace-pre-line">${displayValue}</td>`;
                         }).join('')}
                     </tr>
                 `).join('')}
             </tbody>
         `;
+        // Add sort event listeners
+        setTimeout(() => {
+            table.querySelectorAll('th[data-col]').forEach(th => {
+                th.addEventListener('click', function(e) {
+                    const col = th.getAttribute('data-col');
+                    if (window.sortColumn === col) {
+                        window.sortDirection = window.sortDirection === 'asc' ? 'desc' : 'asc';
+                    } else {
+                        window.sortColumn = col;
+                        window.sortDirection = 'asc';
+                    }
+                    window.currentPage = 1;
+                    renderTable();
+                });
+            });
+        }, 0);
         renderPagination();
         dataTable.classList.remove('hidden');
     }
 
     function renderPagination() {
         const pagination = document.getElementById('pagination');
-        const totalPages = Math.ceil(currentData.length / rowsPerPage);
+        const totalPages = Math.ceil(window.currentData.length / window.rowsPerPage);
         if (totalPages <= 1) {
             pagination.innerHTML = '';
             return;
         }
         pagination.innerHTML = `
-            <div class="text-sm text-gray-300">Page ${currentPage} of ${totalPages}</div>
+            <div class="text-sm text-gray-300">Page ${window.currentPage} of ${totalPages}</div>
             <div class="flex gap-2">
-                <button id="prevPageBtn" ${currentPage === 1 ? 'disabled' : ''} 
+                <button id="prevPageBtn" ${window.currentPage === 1 ? 'disabled' : ''} 
                         class="px-3 py-1 bg-white bg-opacity-10 hover:bg-white hover:bg-opacity-20 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded">
                     Previous
                 </button>
-                <button id="nextPageBtn" ${currentPage === totalPages ? 'disabled' : ''} 
+                <button id="nextPageBtn" ${window.currentPage === totalPages ? 'disabled' : ''} 
                         class="px-3 py-1 bg-white bg-opacity-10 hover:bg-white hover:bg-opacity-20 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded">
                     Next
                 </button>
@@ -323,25 +383,25 @@
         // Attach event listeners for pagination buttons
         const prevBtn = document.getElementById('prevPageBtn');
         const nextBtn = document.getElementById('nextPageBtn');
-        if (prevBtn) prevBtn.addEventListener('click', () => changePage(currentPage - 1));
-        if (nextBtn) nextBtn.addEventListener('click', () => changePage(currentPage + 1));
+        if (prevBtn) prevBtn.addEventListener('click', () => changePage(window.currentPage - 1));
+        if (nextBtn) nextBtn.addEventListener('click', () => changePage(window.currentPage + 1));
     }
 
     function changePage(page) {
-        const totalPages = Math.ceil(currentData.length / rowsPerPage);
+        const totalPages = Math.ceil(window.currentData.length / window.rowsPerPage);
         if (page >= 1 && page <= totalPages) {
-            currentPage = page;
+            window.currentPage = page;
             renderTable();
         }
     }
 
     async function exportCSV() {
-        if (!currentData.length) return;
+        if (!window.currentData.length) return;
         try {
             const response = await fetch('/api/export', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ data: currentData })
+                body: JSON.stringify({ data: window.currentData })
             });
             if (!response.ok) throw new Error('Export failed');
             const blob = await response.blob();
@@ -386,11 +446,17 @@
         // Input data textarea
         var inputData = document.getElementById('inputData');
         if (inputData) inputData.addEventListener('input', handleDataChange);
+        // Universal filter input
+        var universalFilterInput = document.getElementById('universalFilterInput');
+        if (universalFilterInput) universalFilterInput.addEventListener('input', function() {
+            window.currentPage = 1;
+            renderTable();
+        });
         // Rows per page
         var rowsPerPageSelect = document.getElementById('rowsPerPage');
         if (rowsPerPageSelect) rowsPerPageSelect.addEventListener('change', (e) => {
-            rowsPerPage = parseInt(e.target.value);
-            currentPage = 1;
+            window.rowsPerPage = parseInt(e.target.value);
+            window.currentPage = 1;
             renderTable();
         });
         // File input
@@ -425,7 +491,10 @@
             }
         });
     });
+
+    // Load external filter logic as a static script after all DOM and functions are defined
     </script>
+    <script src="tableFilter.js"></script>
     </div>
 </body>
 </html>
