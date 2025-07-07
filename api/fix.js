@@ -1,3 +1,5 @@
+import { db } from './db.js';
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -33,8 +35,35 @@ export default async function handler(req, res) {
                                  .trim();
     // If still wrapped in code block (sometimes AI returns double code blocks), remove again
     correctedData = correctedData.replace(/^```[\w]*\s*([\r\n])?/i, '').replace(/([\r\n])?```\s*$/i, '').trim();
+    // Try to parse the corrected data to check for errors
+    let parseError = null;
+    try {
+      JSON.parse(correctedData);
+    } catch (err) {
+      parseError = err.message;
+    }
+    if (parseError) {
+      // Store error and data in Turso DB (fix_errors)
+      try {
+        await db.execute(
+          'INSERT INTO fix_errors (data, error) VALUES (?, ?)',
+          [data, parseError]
+        );
+      } catch (dbErr) {
+        console.error('Turso DB error:', dbErr);
+      }
+    }
     return res.json({ correctedData });
   } catch (error) {
+    // Store error and data in Turso DB (api_errors)
+    try {
+      await db.execute(
+        'INSERT INTO api_errors (data, error, endpoint) VALUES (?, ?, ?)',
+        [req.body.data || '', error.message, '/api/fix']
+      );
+    } catch (dbErr) {
+      console.error('Turso DB error:', dbErr);
+    }
     return res.status(400).json({ error: error.message });
   }
 }
