@@ -1,13 +1,11 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs').promises;
 const path = require('path');
-const { createObjectCsvWriter } = require('csv-writer');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001
 
 // Security & middleware
 app.use(helmet({
@@ -43,182 +41,10 @@ const upload = multer({
   }
 });
 
-// Utility functions
-const sanitizeInput = (input) => {
-  return input.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-};
 
-const validateApiKey = (key) => {
-  return key && key.trim().length > 20 && key.startsWith('AIza');
-};
 
-const parseData = (data) => {
-  if (!data || !data.trim()) return null;
-  
-  const sanitizedData = sanitizeInput(data.trim());
-  
-  // Try JSON first
-  try {
-    const jsonData = JSON.parse(sanitizedData);
-    const arrayData = Array.isArray(jsonData) ? jsonData : [jsonData];
-    // If the object has an 'items' array of objects, expand to multiple rows
-    let resultData = [];
-    let columns = [];
-    arrayData.forEach(row => {
-      if (row && typeof row === 'object' && Array.isArray(row.items) && row.items.length > 0 && row.items.every(i => typeof i === 'object' && i !== null)) {
-        row.items.forEach(item => {
-          let flat = {};
-          // Copy all non-items fields (flatten nested objects)
-          for (const key in row) {
-            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
-            if (key === 'items') continue;
-            const value = row[key];
-            if (typeof value === 'object' && value !== null) {
-              const keys = Object.keys(value);
-              if (keys.length > 0) {
-                for (const k of keys) {
-                  const colName = `${key}_${k}`;
-                  flat[colName] = value[k];
-                  if (!columns.includes(colName)) columns.push(colName);
-                }
-              } else {
-                flat[key] = '';
-                if (!columns.includes(key)) columns.push(key);
-              }
-            } else {
-              flat[key] = value;
-              if (!columns.includes(key)) columns.push(key);
-            }
-          }
-          // Add item fields (flatten if needed)
-          for (const itemKey in item) {
-            if (!Object.prototype.hasOwnProperty.call(item, itemKey)) continue;
-            const itemValue = item[itemKey];
-            if (typeof itemValue === 'object' && itemValue !== null) {
-              const keys = Object.keys(itemValue);
-              if (keys.length > 0) {
-                for (const k of keys) {
-                  const colName = `item_${itemKey}_${k}`;
-                  flat[colName] = itemValue[k];
-                  if (!columns.includes(colName)) columns.push(colName);
-                }
-              } else {
-                const colName = `item_${itemKey}`;
-                flat[colName] = '';
-                if (!columns.includes(colName)) columns.push(colName);
-              }
-            } else {
-              const colName = `item_${itemKey}`;
-              flat[colName] = itemValue;
-              if (!columns.includes(colName)) columns.push(colName);
-            }
-          }
-          resultData.push(flat);
-        });
-      } else {
-        // Fallback: flatten as before (single row)
-        let flat = {};
-        for (const key in row) {
-          if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
-          const value = row[key];
-          if (typeof value === 'object' && value !== null) {
-            const keys = Object.keys(value);
-            if (keys.length > 0) {
-              for (const k of keys) {
-                const colName = `${key}_${k}`;
-                flat[colName] = value[k];
-                if (!columns.includes(colName)) columns.push(colName);
-              }
-            } else {
-              flat[key] = '';
-              if (!columns.includes(key)) columns.push(key);
-            }
-          } else {
-            flat[key] = value;
-            if (!columns.includes(key)) columns.push(key);
-          }
-        }
-        resultData.push(flat);
-      }
-    });
-    return { data: resultData.slice(0, 1000), type: 'JSON', columns };
-  } catch (e) {}
-  
-  // Try delimited formats
-  const lines = sanitizedData.split('\n').filter(line => line.trim());
-  if (lines.length > 1) {
-    const delimiters = [',', '\t', '|', ';'];
-    let bestDelimiter = ',';
-    let maxCount = 0;
-    
-    delimiters.forEach(delimiter => {
-      const count = (lines[0].match(new RegExp(`\\${delimiter}`, 'g')) || []).length;
-      if (count > maxCount) {
-        maxCount = count;
-        bestDelimiter = delimiter;
-      }
-    });
-    
-    if (maxCount > 0) {
-      const headers = lines[0].split(bestDelimiter)
-        .map(h => h.trim().replace(/^["']|["']$/g, ''))
-        .filter(h => h);
-      
-      if (headers.length > 1) {
-        const rows = lines.slice(1, 1001).map(line => {
-          const values = line.split(bestDelimiter).map(v => v.trim().replace(/^["']|["']$/g, ''));
-          const obj = {};
-          headers.forEach((header, index) => {
-            obj[header] = values[index] || '';
-          });
-          return obj;
-        });
-        
-        if (rows.length > 0) {
-          const typeMap = { ',': 'CSV', '\t': 'TSV', '|': 'Pipe-separated', ';': 'Semicolon-separated' };
-          return { data: rows, type: typeMap[bestDelimiter] };
-        }
-      }
-    }
-  }
-  
-  throw new Error('Unrecognized format. Please use JSON, CSV, TSV, or other delimited data.');
-};
 
-const correctDataWithGemini = async (data, apiKey) => {
-  if (!validateApiKey(apiKey)) {
-    throw new Error('Please enter a valid Gemini API key first');
-  }
-  
-  const prompt = `Fix this malformed data to make it valid JSON or CSV format. Return ONLY the corrected data, no explanations:\n\n${data}`;
-  
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.1, topK: 1, topP: 0.8, maxOutputTokens: 8192 }
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`API Error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    if (!result.candidates || result.candidates.length === 0) {
-      throw new Error('No response from Gemini API');
-    }
-    
-    return result.candidates[0].content.parts[0].text
-      .replace(/^```[\w]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
-  } catch (error) {
-    throw new Error(`AI correction failed: ${error.message}`);
-  }
-};
+// No longer needed: correctDataWithGemini and validateApiKey are now inlined in /api/fix
 
 // Routes
 app.get('/', (req, res) => {
@@ -615,89 +441,60 @@ app.post('/api/parse', (req, res) => {
     };
     const sanitizedData = sanitizeInput(data ? data.trim() : '');
     // If user selected a type, use it. Otherwise, auto-detect.
-    if (dataType === 'json') {
+    if (dataType === 'json' || dataType === 'auto' || !dataType) {
       try {
         const jsonData = JSON.parse(sanitizedData);
-        const arrayData = Array.isArray(jsonData) ? jsonData : [jsonData];
-        function flattenSmart(val, keyPrefix = '') {
-          if (typeof val === 'object' && val !== null) {
-            const keys = Object.keys(val);
-            if (Array.isArray(val)) {
-              if (val.length > 0 && val.every(v => typeof v === 'object' && v !== null && Object.keys(v).length > 0)) {
-                let flat = {};
-                val.forEach((v, i) => {
-                  const nested = flattenSmart(v, `${keyPrefix}${i}`);
-                  if (typeof nested === 'object' && !Array.isArray(nested)) {
-                    for (const nk in nested) flat[`${keyPrefix ? keyPrefix + '_' : ''}${i}_${nk}`] = nested[nk];
-                  } else {
-                    flat[`${keyPrefix ? keyPrefix + '_' : ''}${i}`] = nested;
-                  }
-                });
-                return flat;
-              } else {
-                return val.join(', ');
-              }
-            } else if (keys.length > 0) {
-              let flat = {};
-              for (const k of keys) {
-                const v = val[k];
-                if (typeof v === 'object' && v !== null) {
-                  const nested = flattenSmart(v, keyPrefix ? `${keyPrefix}_${k}` : k);
-                  if (typeof nested === 'object' && !Array.isArray(nested)) {
-                    for (const nk in nested) flat[`${keyPrefix ? keyPrefix + '_' : ''}${k}_${nk}`] = nested[nk];
-                  } else {
-                    flat[`${keyPrefix ? keyPrefix + '_' : ''}${k}`] = nested;
-                  }
-                } else {
-                  flat[`${keyPrefix ? keyPrefix + '_' : ''}${k}`] = v;
-                }
-              }
-              return flat;
-            } else {
-              return '';
+        let arrayData = Array.isArray(jsonData) ? jsonData : [jsonData];
+        // --- Use improved recursive explode and flatten logic ---
+        function recursiveExplode(obj) {
+          let arrays = Object.keys(obj).filter(
+            key => Array.isArray(obj[key]) && obj[key].length > 0 && typeof obj[key][0] === 'object'
+          );
+          if (arrays.length === 0) return [obj];
+          const arrayKey = arrays[0];
+          const arr = obj[arrayKey];
+          const parent = { ...obj };
+          delete parent[arrayKey];
+          let rows = [];
+          arr.forEach(item => {
+            const merged = { ...parent };
+            for (const k in item) {
+              merged[`${arrayKey}_${k}`] = item[k];
             }
-          } else {
-            return val;
-          }
+            rows.push(...recursiveExplode(merged));
+          });
+          return rows;
         }
-        const resultData = arrayData.map(row => {
-          if (typeof row !== 'object' || row === null) return row;
-          let flat = {};
-          for (const key in row) {
-            if (!Object.prototype.hasOwnProperty.call(row, key)) continue;
-            const value = row[key];
-            if (typeof value === 'object' && value !== null) {
-              const keys = Object.keys(value);
-              if (Array.isArray(value)) {
-                if (value.length > 0 && value.every(v => typeof v === 'object' && v !== null && Object.keys(v).length > 0)) {
-                  value.forEach((v, i) => {
-                    const nested = flattenSmart(v, `${key}_${i}`);
-                    if (typeof nested === 'object' && !Array.isArray(nested)) {
-                      for (const nk in nested) flat[`${key}_${i}_${nk}`] = nested[nk];
-                    } else {
-                      flat[`${key}_${i}`] = nested;
-                    }
-                  });
-                } else {
-                  flat[key] = value.join(', ');
-                }
-              } else if (keys.length > 0) {
-                const nested = flattenSmart(value, key);
-                if (typeof nested === 'object' && !Array.isArray(nested)) {
-                  for (const nk in nested) flat[`${key}_${nk}`] = nested[nk];
-                } else {
-                  flat[key] = nested;
-                }
+        const flatten = (obj, prefix = '', res = {}) => {
+          for (const key in obj) {
+            const value = obj[key];
+            if (Array.isArray(value)) {
+              if (value.length > 0 && typeof value[0] !== 'object') {
+                res[prefix + key] = value.join(', ');
               } else {
-                flat[key] = '';
+                res[prefix + key] = '';
               }
+            } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+              flatten(value, prefix + key + '.', res);
+            } else if (
+              value !== undefined &&
+              value !== null &&
+              !(typeof value === 'string' && value === '')
+            ) {
+              res[prefix + key] = value;
             } else {
-              flat[key] = value;
+              res[prefix + key] = '';
             }
           }
-          return flat;
+          return res;
+        };
+        let exploded = [];
+        arrayData.forEach(row => {
+          const rows = recursiveExplode(row);
+          exploded.push(...rows);
         });
-        return res.json({ data: resultData.slice(0, 1000), type: 'JSON' });
+        let finalRows = exploded.map(row => flatten(row));
+        return res.json({ data: finalRows.slice(0, 1000), type: 'JSON' });
       } catch (e) {
         return res.status(400).json({ error: 'Invalid JSON format.' });
       }
