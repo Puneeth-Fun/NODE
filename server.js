@@ -114,7 +114,7 @@ app.get('/', (req, res) => {
     <div class="max-w-7xl mx-auto space-y-6 relative z-10">
         <div class="text-center">
             <h1 class="text-5xl font-extrabold text-white mb-2 tracking-tight drop-shadow-lg">🤖 AI Data Table Viewer</h1>
-            <p class="text-gray-200 text-lg font-medium">Production-ready data parsing powered by <span class="text-blue-300 font-semibold">Google Gemini AI</span></p>
+            <p class="text-gray-200 text-lg font-medium">Data parsing powered by <span class="text-blue-300 font-semibold">⚡Thor⚡</span></p>
         </div>
 
         <div class="glass rounded-2xl p-6 shadow-xl">
