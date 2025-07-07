@@ -59,17 +59,19 @@
             <p class="text-gray-200 text-lg font-medium">Data parsing powered by <span class="text-blue-300 font-semibold">⚡Thor⚡</span></p>
         </div>
         <div class="glass rounded-2xl p-6 shadow-xl">
-            <h2 class="text-xl font-semibold text-white mb-4 flex items-center gap-2"><span>⚙️</span> API Configuration</h2>
-            <div class="flex gap-3">
-                <input type="password" id="apiKey" placeholder="Enter your Gemini API key (AIza...)" 
-                       class="flex-1 bg-black bg-opacity-20 border border-white border-opacity-20 rounded-xl p-3 text-white placeholder-gray-400 focus-ring transition-all">
-                <button id="toggleApiKeyBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-xl transition-all focus-ring">👁️</button>
-            </div>
-            <p class="text-blue-200 text-xs mt-2">Get your free API key: 
-              <a href="https://makersuite.google.com/app/apikey" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Google AI Studio</a>
-              &nbsp;|&nbsp;
-              <a href="https://unsecuredapikeys.com/" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Try your luck</a>
-            </p>
+            <details id="apiConfigDetails">
+              <summary class="text-xl font-semibold text-white mb-4 flex items-center gap-2 cursor-pointer select-none"><span>⚙️</span> API Configuration</summary>
+              <div class="flex gap-3 mt-4">
+                  <input type="password" id="apiKey" placeholder="Enter your Gemini API key (AIza...)" 
+                         class="flex-1 bg-black bg-opacity-20 border border-white border-opacity-20 rounded-xl p-3 text-white placeholder-gray-400 focus-ring transition-all">
+                  <button id="toggleApiKeyBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-xl transition-all focus-ring">👁️</button>
+              </div>
+              <p class="text-blue-200 text-xs mt-2">Get your free API key: 
+                <a href="https://makersuite.google.com/app/apikey" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Google AI Studio</a>
+                &nbsp;|&nbsp;
+                <a href="https://unsecuredapikeys.com/" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Try your luck</a>
+              </p>
+            </details>
         </div>
 
         <div class="grid lg:grid-cols-3 gap-6">
@@ -215,6 +217,11 @@
             document.getElementById('errorMessage').textContent = error.message;
             errorSection.classList.remove('hidden');
             document.getElementById('dataTable').classList.add('hidden');
+            // Expand API Configuration if error section (Fix with AI) is visible
+            var apiConfigDetails = document.getElementById('apiConfigDetails');
+            if (apiConfigDetails && !apiConfigDetails.open) {
+                apiConfigDetails.open = true;
+            }
         }
     }
 
@@ -226,6 +233,11 @@
             return;
         }
         try {
+            // Expand API Configuration if collapsed
+            var apiConfigDetails = document.getElementById('apiConfigDetails');
+            if (apiConfigDetails && !apiConfigDetails.open) {
+                apiConfigDetails.open = true;
+            }
             showLoading(true);
             const response = await fetch('/api/fix', {
                 method: 'POST',
