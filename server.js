@@ -91,14 +91,30 @@ app.get('/', (req, res) => {
         .zebra tbody tr:hover { background-color: rgba(59, 130, 246, 0.13); transition: background 0.2s; }
         .focus-ring:focus { outline: 2px solid #6366f1; outline-offset: 2px; }
         .transition-all { transition: all 0.2s cubic-bezier(.4,0,.2,1); }
+        .lds-dual-ring {
+          display: inline-block;
+          width: 80px;
+          height: 80px;
+          border: 8px solid rgba(255, 255, 255, 0.2);
+          border-radius: 50%;
+          border-top-color: #6366f1;
+          animation: lds-dual-ring 1.2s linear infinite;
+        }
+        @keyframes lds-dual-ring {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body class="min-h-screen p-6 relative">
     <div class="animated-bg"></div>
+    <div id="loadingOverlay" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(30,41,59,0.45);z-index:9999;align-items:center;justify-content:center;pointer-events:all;" aria-busy="true" role="status">
+        <div class="lds-dual-ring"></div>
+    </div>
     <div class="max-w-7xl mx-auto space-y-6 relative z-10">
         <div class="text-center">
             <h1 class="text-5xl font-extrabold text-white mb-2 tracking-tight drop-shadow-lg">🤖 AI Data Table Viewer</h1>
-            <p class="text-gray-200 text-lg font-medium">Production-ready data parsing powered by <span class="text-blue-300 font-semibold">Google Gemini AI</span></p>
+            <p class="text-gray-200 text-lg font-medium">Data parsing powered by <span class="text-blue-300 font-semibold">⚡Thor⚡</span></p>
         </div>
 
         <div class="glass rounded-2xl p-6 shadow-xl">
@@ -108,7 +124,11 @@ app.get('/', (req, res) => {
                        class="flex-1 bg-black bg-opacity-20 border border-white border-opacity-20 rounded-xl p-3 text-white placeholder-gray-400 focus-ring transition-all">
                 <button onclick="toggleApiKey()" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-xl transition-all focus-ring">👁️</button>
             </div>
-            <p class="text-blue-200 text-xs mt-2">Get your free API key: <a href="https://makersuite.google.com/app/apikey" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Google AI Studio</a></p>
+            <p class="text-blue-200 text-xs mt-2">Get your free API key: 
+              <a href="https://makersuite.google.com/app/apikey" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Google AI Studio</a>
+              &nbsp;|&nbsp;
+              <a href="https://unsecuredapikeys.com/" target="_blank" class="text-blue-400 underline hover:text-blue-200 transition-all">Try your luck</a>
+            </p>
         </div>
 
         <div class="grid lg:grid-cols-3 gap-6">
@@ -214,82 +234,57 @@ app.get('/', (req, res) => {
         }
 
         async function parseData(data) {
+            showLoading(true);
             try {
                 const response = await fetch('/api/parse', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data })
                 });
-                
                 const result = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(result.error);
                 }
-                
                 return result;
             } catch (error) {
                 throw error;
-            }
-        }
-
-        async function handleDataChange() {
-            const data = document.getElementById('inputData').value;
-            const errorSection = document.getElementById('errorSection');
-            const dataType = document.getElementById('dataType');
-            
-            errorSection.classList.add('hidden');
-            dataType.classList.add('hidden');
-            
-            if (!data.trim()) {
-                document.getElementById('dataTable').classList.add('hidden');
-                return;
-            }
-            
-            try {
-                const result = await parseData(data);
-                currentData = result.data;
-                dataType.textContent = \`✅ \${result.type} detected\`;
-                dataType.classList.remove('hidden');
-                renderTable();
-                showToast(\`Successfully parsed \${result.data.length} rows as \${result.type}\`, 'success');
-            } catch (error) {
-                document.getElementById('errorMessage').textContent = error.message;
-                errorSection.classList.remove('hidden');
-                document.getElementById('dataTable').classList.add('hidden');
+            } finally {
+                showLoading(false);
             }
         }
 
         async function fixWithAI() {
             const data = document.getElementById('inputData').value;
             const apiKey = document.getElementById('apiKey').value;
-            
             if (!apiKey) {
                 showToast('Please enter your Gemini API key first', 'error');
                 return;
             }
-            
+            showLoading(true);
             try {
                 showToast('AI is fixing your data...', 'info');
-                
                 const response = await fetch('/api/fix', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ data, apiKey })
                 });
-                
                 const result = await response.json();
-                
                 if (!response.ok) {
                     throw new Error(result.error);
                 }
-                
                 document.getElementById('inputData').value = result.correctedData;
                 await handleDataChange();
                 showToast('AI successfully corrected your data!', 'success');
             } catch (error) {
                 showToast(error.message, 'error');
+            } finally {
+                showLoading(false);
             }
+        }
+
+        function showLoading(show) {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.style.display = show ? 'flex' : 'none';
         }
 
         function renderTable() {
@@ -559,10 +554,13 @@ app.post('/api/fix', async (req, res) => {
     if (!result.candidates || result.candidates.length === 0) {
       throw new Error('No response from Gemini API');
     }
-    const correctedData = result.candidates[0].content.parts[0].text
-      .replace(/^```[\w]*\n?/, '')
-      .replace(/\n?```$/, '')
-      .trim();
+    let correctedData = result.candidates[0].content.parts[0].text;
+    // Remove all leading/trailing code blocks (``` or ```json, etc.) and trim whitespace
+    correctedData = correctedData.replace(/^```[\w]*\s*([\r\n])?/i, '')
+                                 .replace(/([\r\n])?```\s*$/i, '')
+                                 .trim();
+    // If still wrapped in code block (sometimes AI returns double code blocks), remove again
+    correctedData = correctedData.replace(/^```[\w]*\s*([\r\n])?/i, '').replace(/([\r\n])?```\s*$/i, '').trim();
     return res.json({ correctedData });
   } catch (error) {
     return res.status(400).json({ error: error.message });
